@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import calendar
 from collections import defaultdict
@@ -132,7 +133,7 @@ if st.button("Calculate Budgets"):
     st.success(f"Calculations complete! Grand Total Budget Across All Campaigns: **${grand_total_budget:,.0f}**")
 
     # 1. Consolidated Data Table
-    st.subheader("Consolidated Campaign Dates and Budgets")
+    st.subheader("Campaign Dates and Budgets")
     consolidated_data = [
         {'Campaign': 'Google Pre-Opening', 'Start Date': google_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${GOOGLE_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
         {'Campaign': 'Google Post-Opening', 'Start Date': post_open_google_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET + ((post_open_google_final_campaign_end_date - post_open_google_initial_30_day_end_date).days * POST_OPENING_GOOGLE_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'}
@@ -189,11 +190,24 @@ if st.button("Calculate Budgets"):
     colors = {'Pre-Opening': 'skyblue', 'Post-Opening': 'lightcoral'}
 
     for idx, row in timeline_df.iterrows():
-        ax.barh(campaign_to_y[row['Campaign']], row['Duration_days'], left=row['Start'], color=colors[row['Group']], edgecolor='black')
+        # Convert Pandas Timestamp to Matplotlib date number to prevent the graph from crashing
+        start_num = mdates.date2num(row['Start'])
+        ax.barh(campaign_to_y[row['Campaign']], row['Duration_days'], left=start_num, color=colors[row['Group']], edgecolor='black')
 
-    ax.axvline(x=open_date_dt, color='green', linestyle='--', label='Open Date')
+    # Convert the vline Open Date as well
+    ax.axvline(x=mdates.date2num(open_date_dt), color='green', linestyle='--', label='Open Date')
+    
     ax.set_yticks(range(len(campaign_order)))
     ax.set_yticklabels(campaign_order)
     ax.legend(loc='upper right')
     
-    # Invert the Y-axis so the first items (Pre-Opening)
+    # Explicitly force the x-axis to format and read as actual dates
+    ax.xaxis_date()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    
+    # Invert the Y-axis so the first items (Pre-Opening) show up at the top
+    ax.invert_yaxis()
+    
+    fig2.autofmt_xdate()
+    plt.tight_layout()
+    st.pyplot(fig2)
