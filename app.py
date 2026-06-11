@@ -35,15 +35,15 @@ def calculate_monthly_budgets(start_date, end_date, daily_budget):
 def get_end_of_month(d):
     return d.replace(day=calendar.monthrange(d.year, d.month)[1])
 
-def calculate_phased_monthly_budgets(start_date, initial_30_day_end_date, final_campaign_end_date, initial_daily_budget, incremental_daily_budget):
+def calculate_phased_monthly_budgets(start_date, initial_period_end_date, final_campaign_end_date, initial_daily_budget, incremental_daily_budget):
     monthly_budgets = {}
     current_day = start_date.date() if isinstance(start_date, datetime) else start_date
     final_campaign_end_day = final_campaign_end_date.date() if isinstance(final_campaign_end_date, datetime) else final_campaign_end_date
-    initial_30_day_end_day = initial_30_day_end_date.date() if isinstance(initial_30_day_end_date, datetime) else initial_30_day_end_date
+    initial_period_end_day = initial_period_end_date.date() if isinstance(initial_period_end_date, datetime) else initial_period_end_date
 
     while current_day <= final_campaign_end_day:
         daily_budget = initial_daily_budget
-        if current_day >= initial_30_day_end_day:
+        if current_day >= initial_period_end_day:
             daily_budget = incremental_daily_budget
 
         month_year_key = current_day.strftime('%B %Y')
@@ -68,7 +68,8 @@ if st.button("Calculate Budgets"):
     open_date_dt = datetime.combine(selected_date, datetime.min.time())
     
     # --- Always Calculate Google Budgets ---
-    google_lead_gen_start_date_raw = open_date_dt - timedelta(days=30)
+    # Adjusted to 28 days
+    google_lead_gen_start_date_raw = open_date_dt - timedelta(days=28)
     google_lead_gen_start_date = adjust_for_weekend(google_lead_gen_start_date_raw)
     
     GOOGLE_TOTAL_BUDGET = 1000.00
@@ -76,22 +77,25 @@ if st.button("Calculate Budgets"):
     google_daily_budget = round(GOOGLE_TOTAL_BUDGET / google_campaign_duration_days) if google_campaign_duration_days > 0 else 0
     google_monthly_budgets = calculate_monthly_budgets(google_lead_gen_start_date, open_date_dt, google_daily_budget)
 
-    POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET = 1000.00
+    # Adjusted to 4 weeks (28 days)
+    POST_OPENING_GOOGLE_4WEEK_TOTAL_BUDGET = 1000.00
     POST_OPENING_GOOGLE_INCREMENTAL_DAILY = 25
     post_open_google_start_date = open_date_dt
-    post_open_google_initial_30_day_end_date = post_open_google_start_date + timedelta(days=30)
-    post_open_google_final_campaign_end_date = get_end_of_month(post_open_google_initial_30_day_end_date)
-    google_post_open_initial_daily_budget = round(POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET / 30.0)
+    post_open_google_initial_4week_end_date = post_open_google_start_date + timedelta(days=28)
+    post_open_google_final_campaign_end_date = get_end_of_month(post_open_google_initial_4week_end_date)
+    # Divide by 28 instead of 30
+    google_post_open_initial_daily_budget = round(POST_OPENING_GOOGLE_4WEEK_TOTAL_BUDGET / 28.0)
 
     google_post_open_monthly_budgets = calculate_phased_monthly_budgets(
-        post_open_google_start_date, post_open_google_initial_30_day_end_date,
+        post_open_google_start_date, post_open_google_initial_4week_end_date,
         post_open_google_final_campaign_end_date, google_post_open_initial_daily_budget,
         POST_OPENING_GOOGLE_INCREMENTAL_DAILY
     )
 
     # --- Conditionally Calculate Meta Budgets ---
     if campaign_type == "Full NCL Campaign":
-        meta_lead_gen_start_date_raw = open_date_dt - timedelta(days=90)
+        # Adjusted to 84 days
+        meta_lead_gen_start_date_raw = open_date_dt - timedelta(days=84)
         meta_lead_gen_start_date = adjust_for_weekend(meta_lead_gen_start_date_raw)
         
         META_TOTAL_BUDGET = 10000.00
@@ -99,15 +103,17 @@ if st.button("Calculate Budgets"):
         meta_daily_budget = round(META_TOTAL_BUDGET / meta_campaign_duration_days) if meta_campaign_duration_days > 0 else 0
         meta_monthly_budgets = calculate_monthly_budgets(meta_lead_gen_start_date, open_date_dt, meta_daily_budget)
 
-        POST_OPENING_META_30DAY_TOTAL_BUDGET = 1500.00
+        # Adjusted to 4 weeks (28 days)
+        POST_OPENING_META_4WEEK_TOTAL_BUDGET = 1500.00
         POST_OPENING_META_INCREMENTAL_DAILY = 20
         post_open_meta_start_date = open_date_dt
-        post_open_meta_initial_30_day_end_date = post_open_meta_start_date + timedelta(days=30)
-        post_open_meta_final_campaign_end_date = get_end_of_month(post_open_meta_initial_30_day_end_date)
-        meta_post_open_initial_daily_budget = round(POST_OPENING_META_30DAY_TOTAL_BUDGET / 30.0)
+        post_open_meta_initial_4week_end_date = post_open_meta_start_date + timedelta(days=28)
+        post_open_meta_final_campaign_end_date = get_end_of_month(post_open_meta_initial_4week_end_date)
+        # Divide by 28 instead of 30
+        meta_post_open_initial_daily_budget = round(POST_OPENING_META_4WEEK_TOTAL_BUDGET / 28.0)
 
         meta_post_open_monthly_budgets = calculate_phased_monthly_budgets(
-            post_open_meta_start_date, post_open_meta_initial_30_day_end_date,
+            post_open_meta_start_date, post_open_meta_initial_4week_end_date,
             post_open_meta_final_campaign_end_date, meta_post_open_initial_daily_budget,
             POST_OPENING_META_INCREMENTAL_DAILY
         )
@@ -133,16 +139,16 @@ if st.button("Calculate Budgets"):
     st.success(f"Calculations complete! Grand Total Budget Across All Campaigns: **${grand_total_budget:,.0f}**")
 
     # 1. Consolidated Data Table
-    st.subheader("Campaign Dates and Budgets")
+    st.subheader("Consolidated Campaign Dates and Budgets")
     consolidated_data = [
         {'Campaign': 'Google Pre-Opening', 'Start Date': google_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${GOOGLE_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
-        {'Campaign': 'Google Post-Opening', 'Start Date': post_open_google_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET + ((post_open_google_final_campaign_end_date - post_open_google_initial_30_day_end_date).days * POST_OPENING_GOOGLE_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'}
+        {'Campaign': 'Google Post-Opening', 'Start Date': post_open_google_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_GOOGLE_4WEEK_TOTAL_BUDGET + ((post_open_google_final_campaign_end_date - post_open_google_initial_4week_end_date).days * POST_OPENING_GOOGLE_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'}
     ]
     
     if campaign_type == "Full NCL Campaign":
         # Insert Meta campaigns if it's the full campaign so they show up in order
         consolidated_data.insert(0, {'Campaign': 'Meta Pre-Opening', 'Start Date': meta_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${META_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'})
-        consolidated_data.insert(2, {'Campaign': 'Meta Post-Opening', 'Start Date': post_open_meta_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_meta_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_META_30DAY_TOTAL_BUDGET + ((post_open_meta_final_campaign_end_date - post_open_meta_initial_30_day_end_date).days * POST_OPENING_META_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'})
+        consolidated_data.insert(2, {'Campaign': 'Meta Post-Opening', 'Start Date': post_open_meta_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_meta_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_META_4WEEK_TOTAL_BUDGET + ((post_open_meta_final_campaign_end_date - post_open_meta_initial_4week_end_date).days * POST_OPENING_META_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'})
         
     st.dataframe(pd.DataFrame(consolidated_data), use_container_width=True)
 
