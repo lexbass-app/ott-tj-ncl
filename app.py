@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import calendar
 from collections import defaultdict
 
@@ -57,13 +56,11 @@ def calculate_phased_monthly_budgets(start_date, initial_30_day_end_date, final_
 st.title("OTT Budget Calculator")
 st.write("Select the Open Date below to generate campaign timelines and budgets.")
 
-# This replaces your old `input()` function
 selected_date = st.date_input("What is the location's Open Date?")
 
-# A button to trigger the calculations
 if st.button("Calculate Budgets"):
     
-    # Convert Streamlit date to datetime object to match your original logic
+    # Convert Streamlit date to datetime object
     open_date_dt = datetime.combine(selected_date, datetime.min.time())
     
     # --- Campaign Date Calculations ---
@@ -128,7 +125,7 @@ if st.button("Calculate Budgets"):
     # --- Render Results to the Webpage ---
     st.success(f"Calculations complete! Grand Total Budget Across All Campaigns: **${grand_total_budget:,.0f}**")
 
-    # Display Consolidated Data Table
+    # 1. Consolidated Data Table
     st.subheader("Consolidated Campaign Dates and Budgets")
     consolidated_data = [
         {'Campaign': 'Meta Pre-Opening', 'Start Date': meta_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${META_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
@@ -138,21 +135,31 @@ if st.button("Calculate Budgets"):
     ]
     st.dataframe(pd.DataFrame(consolidated_data), use_container_width=True)
 
-    # --- Render Charts ---
-    st.subheader("Budget Allocations by Campaign Type")
-    combined_budgets_df = pd.DataFrame.from_dict(combined_monthly_budgets, orient='index').fillna(0).reset_index().rename(columns={'index': 'Month'})
-    combined_budgets_df['Month'] = pd.Categorical(combined_budgets_df['Month'], categories=sorted_months, ordered=True)
-    combined_budgets_df = combined_budgets_df.sort_values('Month')
+    # 2. Monthly Billing Breakdown Table (New)
+    st.subheader("Monthly Billing Breakdown by Tactic")
     
-    melted_df = combined_budgets_df.melt(id_vars=['Month'], value_vars=[col for col in combined_budgets_df.columns if col != 'Month'], var_name='Campaign Type', value_name='Budget')
+    # Create DataFrame from the combined dict, filling empty spots with 0
+    billing_df = pd.DataFrame.from_dict(combined_monthly_budgets, orient='index').fillna(0)
     
-    fig1 = plt.figure(figsize=(10, 5))
-    sns.barplot(x='Month', y='Budget', hue='Campaign Type', data=melted_df, dodge=False, palette='viridis')
-    plt.xticks(rotation=45, ha='right')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-    st.pyplot(fig1) # Streamlit renders the Matplotlib figure here
+    # Ensure columns are in a logical order for the viewer
+    expected_cols = ['Meta Pre-Opening', 'Google Pre-Opening', 'Meta Post-Opening', 'Google Post-Opening']
+    existing_cols = [col for col in expected_cols if col in billing_df.columns]
+    billing_df = billing_df[existing_cols]
+    
+    # Calculate a total for each month
+    billing_df['Monthly Total'] = billing_df.sum(axis=1)
+    
+    # Sort the rows chronologically
+    billing_df.index = pd.CategoricalIndex(billing_df.index, categories=sorted_months, ordered=True)
+    billing_df = billing_df.sort_index()
+    
+    # Format all numbers as currency
+    for col in billing_df.columns:
+        billing_df[col] = billing_df[col].apply(lambda x: f"${x:,.0f}")
+        
+    st.dataframe(billing_df, use_container_width=True)
 
+    # 3. Campaign Timelines (Reordered)
     st.subheader("Campaign Timelines")
     timeline_data = [
         {'Campaign': 'Meta Pre-Opening', 'Start': meta_lead_gen_start_date, 'End': open_date_dt - timedelta(days=1), 'Group': 'Pre-Opening'},
@@ -162,6 +169,8 @@ if st.button("Calculate Budgets"):
     ]
     timeline_df = pd.DataFrame(timeline_data)
     timeline_df['Duration_days'] = (timeline_df['End'] - timeline_df['Start']).dt.days
+    
+    # Sort so Pre-Opening campaigns are processed first
     timeline_df = timeline_df.sort_values(by=['Start', 'Campaign'])
 
     fig2, ax = plt.subplots(figsize=(10, 4))
@@ -176,6 +185,10 @@ if st.button("Calculate Budgets"):
     ax.set_yticks(range(len(campaign_order)))
     ax.set_yticklabels(campaign_order)
     ax.legend(loc='upper right')
+    
+    # Invert the Y-axis so the first items (Pre-Opening) show up at the top
+    ax.invert_yaxis()
+    
     fig2.autofmt_xdate()
     plt.tight_layout()
-    st.pyplot(fig2) # Streamlit renders the timeline figure here
+    st.pyplot(fig2)
