@@ -54,51 +54,29 @@ def calculate_phased_monthly_budgets(start_date, initial_30_day_end_date, final_
 # 2. WEB APP USER INTERFACE
 # -----------------------------------------------------------------------------
 st.title("OTT Budget Calculator")
-st.write("Select the Open Date below to generate campaign timelines and budgets.")
+st.write("Select the Open Date and Campaign Type below to generate timelines and budgets.")
 
 selected_date = st.date_input("What is the location's Open Date?")
+
+# Add a radio button to let the user select the campaign type
+campaign_type = st.radio("Select Campaign Type:", ["Full NCL Campaign", "Google Only"])
 
 if st.button("Calculate Budgets"):
     
     # Convert Streamlit date to datetime object
     open_date_dt = datetime.combine(selected_date, datetime.min.time())
     
-    # --- Campaign Date Calculations ---
-    meta_lead_gen_start_date_raw = open_date_dt - timedelta(days=90)
-    meta_lead_gen_start_date = adjust_for_weekend(meta_lead_gen_start_date_raw)
-    
+    # --- Always Calculate Google Budgets ---
     google_lead_gen_start_date_raw = open_date_dt - timedelta(days=30)
     google_lead_gen_start_date = adjust_for_weekend(google_lead_gen_start_date_raw)
-
-    # --- Pre-Opening Budgets ---
-    META_TOTAL_BUDGET = 10000.00
+    
     GOOGLE_TOTAL_BUDGET = 1000.00
-    
-    meta_campaign_duration_days = (open_date_dt - meta_lead_gen_start_date).days
-    meta_daily_budget = round(META_TOTAL_BUDGET / meta_campaign_duration_days) if meta_campaign_duration_days > 0 else 0
-    meta_monthly_budgets = calculate_monthly_budgets(meta_lead_gen_start_date, open_date_dt, meta_daily_budget)
-    
     google_campaign_duration_days = (open_date_dt - google_lead_gen_start_date).days
     google_daily_budget = round(GOOGLE_TOTAL_BUDGET / google_campaign_duration_days) if google_campaign_duration_days > 0 else 0
     google_monthly_budgets = calculate_monthly_budgets(google_lead_gen_start_date, open_date_dt, google_daily_budget)
 
-    # --- Post-Opening Budgets ---
-    POST_OPENING_META_30DAY_TOTAL_BUDGET = 1500.00
     POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET = 1000.00
-    POST_OPENING_META_INCREMENTAL_DAILY = 20
     POST_OPENING_GOOGLE_INCREMENTAL_DAILY = 25
-
-    post_open_meta_start_date = open_date_dt
-    post_open_meta_initial_30_day_end_date = post_open_meta_start_date + timedelta(days=30)
-    post_open_meta_final_campaign_end_date = get_end_of_month(post_open_meta_initial_30_day_end_date)
-    meta_post_open_initial_daily_budget = round(POST_OPENING_META_30DAY_TOTAL_BUDGET / 30.0)
-
-    meta_post_open_monthly_budgets = calculate_phased_monthly_budgets(
-        post_open_meta_start_date, post_open_meta_initial_30_day_end_date,
-        post_open_meta_final_campaign_end_date, meta_post_open_initial_daily_budget,
-        POST_OPENING_META_INCREMENTAL_DAILY
-    )
-
     post_open_google_start_date = open_date_dt
     post_open_google_initial_30_day_end_date = post_open_google_start_date + timedelta(days=30)
     post_open_google_final_campaign_end_date = get_end_of_month(post_open_google_initial_30_day_end_date)
@@ -110,12 +88,40 @@ if st.button("Calculate Budgets"):
         POST_OPENING_GOOGLE_INCREMENTAL_DAILY
     )
 
+    # --- Conditionally Calculate Meta Budgets ---
+    if campaign_type == "Full NCL Campaign":
+        meta_lead_gen_start_date_raw = open_date_dt - timedelta(days=90)
+        meta_lead_gen_start_date = adjust_for_weekend(meta_lead_gen_start_date_raw)
+        
+        META_TOTAL_BUDGET = 10000.00
+        meta_campaign_duration_days = (open_date_dt - meta_lead_gen_start_date).days
+        meta_daily_budget = round(META_TOTAL_BUDGET / meta_campaign_duration_days) if meta_campaign_duration_days > 0 else 0
+        meta_monthly_budgets = calculate_monthly_budgets(meta_lead_gen_start_date, open_date_dt, meta_daily_budget)
+
+        POST_OPENING_META_30DAY_TOTAL_BUDGET = 1500.00
+        POST_OPENING_META_INCREMENTAL_DAILY = 20
+        post_open_meta_start_date = open_date_dt
+        post_open_meta_initial_30_day_end_date = post_open_meta_start_date + timedelta(days=30)
+        post_open_meta_final_campaign_end_date = get_end_of_month(post_open_meta_initial_30_day_end_date)
+        meta_post_open_initial_daily_budget = round(POST_OPENING_META_30DAY_TOTAL_BUDGET / 30.0)
+
+        meta_post_open_monthly_budgets = calculate_phased_monthly_budgets(
+            post_open_meta_start_date, post_open_meta_initial_30_day_end_date,
+            post_open_meta_final_campaign_end_date, meta_post_open_initial_daily_budget,
+            POST_OPENING_META_INCREMENTAL_DAILY
+        )
+
     # --- Consolidating Data ---
     combined_monthly_budgets = defaultdict(lambda: defaultdict(float))
-    for month, budget in meta_monthly_budgets.items(): combined_monthly_budgets[month]['Meta Pre-Opening'] += budget
+    
+    # Always add Google
     for month, budget in google_monthly_budgets.items(): combined_monthly_budgets[month]['Google Pre-Opening'] += budget
-    for month, budget in meta_post_open_monthly_budgets.items(): combined_monthly_budgets[month]['Meta Post-Opening'] += budget
     for month, budget in google_post_open_monthly_budgets.items(): combined_monthly_budgets[month]['Google Post-Opening'] += budget
+
+    # Conditionally add Meta
+    if campaign_type == "Full NCL Campaign":
+        for month, budget in meta_monthly_budgets.items(): combined_monthly_budgets[month]['Meta Pre-Opening'] += budget
+        for month, budget in meta_post_open_monthly_budgets.items(): combined_monthly_budgets[month]['Meta Post-Opening'] += budget
 
     sorted_months = sorted(combined_monthly_budgets.keys(), key=lambda x: datetime.strptime(x, '%B %Y'))
 
@@ -128,49 +134,53 @@ if st.button("Calculate Budgets"):
     # 1. Consolidated Data Table
     st.subheader("Consolidated Campaign Dates and Budgets")
     consolidated_data = [
-        {'Campaign': 'Meta Pre-Opening', 'Start Date': meta_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${META_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
         {'Campaign': 'Google Pre-Opening', 'Start Date': google_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${GOOGLE_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
-        {'Campaign': 'Meta Post-Opening', 'Start Date': post_open_meta_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_meta_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_META_30DAY_TOTAL_BUDGET + ((post_open_meta_final_campaign_end_date - post_open_meta_initial_30_day_end_date).days * POST_OPENING_META_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'},
         {'Campaign': 'Google Post-Opening', 'Start Date': post_open_google_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_GOOGLE_30DAY_TOTAL_BUDGET + ((post_open_google_final_campaign_end_date - post_open_google_initial_30_day_end_date).days * POST_OPENING_GOOGLE_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'}
     ]
+    
+    if campaign_type == "Full NCL Campaign":
+        # Insert Meta campaigns if it's the full campaign so they show up in order
+        consolidated_data.insert(0, {'Campaign': 'Meta Pre-Opening', 'Start Date': meta_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${META_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'})
+        consolidated_data.insert(2, {'Campaign': 'Meta Post-Opening', 'Start Date': post_open_meta_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_meta_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_META_30DAY_TOTAL_BUDGET + ((post_open_meta_final_campaign_end_date - post_open_meta_initial_30_day_end_date).days * POST_OPENING_META_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'})
+        
     st.dataframe(pd.DataFrame(consolidated_data), use_container_width=True)
 
-    # 2. Monthly Billing Breakdown Table (New)
+    # 2. Monthly Billing Breakdown Table
     st.subheader("Monthly Billing Breakdown by Tactic")
     
-    # Create DataFrame from the combined dict, filling empty spots with 0
     billing_df = pd.DataFrame.from_dict(combined_monthly_budgets, orient='index').fillna(0)
     
-    # Ensure columns are in a logical order for the viewer
-    expected_cols = ['Meta Pre-Opening', 'Google Pre-Opening', 'Meta Post-Opening', 'Google Post-Opening']
+    if campaign_type == "Full NCL Campaign":
+        expected_cols = ['Meta Pre-Opening', 'Google Pre-Opening', 'Meta Post-Opening', 'Google Post-Opening']
+    else:
+        expected_cols = ['Google Pre-Opening', 'Google Post-Opening']
+        
     existing_cols = [col for col in expected_cols if col in billing_df.columns]
     billing_df = billing_df[existing_cols]
     
-    # Calculate a total for each month
     billing_df['Monthly Total'] = billing_df.sum(axis=1)
     
-    # Sort the rows chronologically
     billing_df.index = pd.CategoricalIndex(billing_df.index, categories=sorted_months, ordered=True)
     billing_df = billing_df.sort_index()
     
-    # Format all numbers as currency
     for col in billing_df.columns:
         billing_df[col] = billing_df[col].apply(lambda x: f"${x:,.0f}")
         
     st.dataframe(billing_df, use_container_width=True)
 
-    # 3. Campaign Timelines (Reordered)
+    # 3. Campaign Timelines
     st.subheader("Campaign Timelines")
     timeline_data = [
-        {'Campaign': 'Meta Pre-Opening', 'Start': meta_lead_gen_start_date, 'End': open_date_dt - timedelta(days=1), 'Group': 'Pre-Opening'},
         {'Campaign': 'Google Pre-Opening', 'Start': google_lead_gen_start_date, 'End': open_date_dt - timedelta(days=1), 'Group': 'Pre-Opening'},
-        {'Campaign': 'Meta Post-Opening', 'Start': post_open_meta_start_date, 'End': post_open_meta_final_campaign_end_date, 'Group': 'Post-Opening'},
         {'Campaign': 'Google Post-Opening', 'Start': post_open_google_start_date, 'End': post_open_google_final_campaign_end_date, 'Group': 'Post-Opening'}
     ]
+    
+    if campaign_type == "Full NCL Campaign":
+        timeline_data.insert(0, {'Campaign': 'Meta Pre-Opening', 'Start': meta_lead_gen_start_date, 'End': open_date_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
+        timeline_data.insert(2, {'Campaign': 'Meta Post-Opening', 'Start': post_open_meta_start_date, 'End': post_open_meta_final_campaign_end_date, 'Group': 'Post-Opening'})
+        
     timeline_df = pd.DataFrame(timeline_data)
     timeline_df['Duration_days'] = (timeline_df['End'] - timeline_df['Start']).dt.days
-    
-    # Sort so Pre-Opening campaigns are processed first
     timeline_df = timeline_df.sort_values(by=['Start', 'Campaign'])
 
     fig2, ax = plt.subplots(figsize=(10, 4))
@@ -186,9 +196,4 @@ if st.button("Calculate Budgets"):
     ax.set_yticklabels(campaign_order)
     ax.legend(loc='upper right')
     
-    # Invert the Y-axis so the first items (Pre-Opening) show up at the top
-    ax.invert_yaxis()
-    
-    fig2.autofmt_xdate()
-    plt.tight_layout()
-    st.pyplot(fig2)
+    # Invert the Y-axis so the first items (Pre-Opening)
