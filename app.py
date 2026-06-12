@@ -139,7 +139,7 @@ if st.button("Calculate Budgets"):
     st.success(f"Calculations complete! Grand Total Budget Across All Campaigns: **${grand_total_budget:,.0f}**")
 
     # 1. Consolidated Data Table
-    st.subheader("Consolidated Campaign Dates and Budgets")
+    st.subheader("Campaign Dates and Budgets")
     consolidated_data = [
         {'Campaign': 'Google Pre-Opening', 'Start Date': google_lead_gen_start_date.strftime('%Y-%m-%d'), 'End Date': (open_date_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${GOOGLE_TOTAL_BUDGET:,.0f}", 'Type': 'Pre-Opening'},
         {'Campaign': 'Google Post-Opening', 'Start Date': post_open_google_start_date.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${POST_OPENING_GOOGLE_4WEEK_TOTAL_BUDGET + ((post_open_google_final_campaign_end_date - post_open_google_initial_4week_end_date).days * POST_OPENING_GOOGLE_INCREMENTAL_DAILY):,.0f}", 'Type': 'Post-Opening'}
@@ -153,7 +153,7 @@ if st.button("Calculate Budgets"):
     st.dataframe(pd.DataFrame(consolidated_data), use_container_width=True)
 
     # 2. Monthly Billing Breakdown Table
-    st.subheader("Monthly Billing Breakdown by Tactic")
+    st.subheader("Monthly Budget Breakdown by Channel")
     
     billing_df = pd.DataFrame.from_dict(combined_monthly_budgets, orient='index').fillna(0)
     
