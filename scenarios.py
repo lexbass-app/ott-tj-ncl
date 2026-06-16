@@ -16,6 +16,26 @@ def adjust_for_weekend(calc_date):
     elif day_of_week == 6: return calc_date + timedelta(days=1)
     else: return calc_date
 
+def get_past_months(start_date, end_date):
+    """Generates a list of months (e.g. 'June 2026') between two dates."""
+    months = []
+    if isinstance(start_date, datetime): start_date = start_date.date()
+    if isinstance(end_date, datetime): end_date = end_date.date()
+    
+    if start_date > end_date:
+        return months
+    
+    current = start_date.replace(day=1)
+    end_month = end_date.replace(day=1)
+    
+    while current <= end_month:
+        months.append(current.strftime('%B %Y'))
+        if current.month == 12:
+            current = current.replace(year=current.year+1, month=1)
+        else:
+            current = current.replace(month=current.month+1)
+    return months
+
 def calculate_monthly_budgets(start_date, end_date, daily_budget):
     monthly_budgets = {}
     current_day = start_date.date() if isinstance(start_date, datetime) else start_date
@@ -52,7 +72,7 @@ def calculate_phased_monthly_budgets(start_date, initial_period_end_date, final_
 st.title("🔄 Open Date Change: Scenario Planner")
 st.write("Input current campaign status and new dates to generate budget pivot options.")
 
-st.subheader("1. Scenario Inputs")
+st.subheader("1. Scenario Dates")
 col1, col2 = st.columns(2)
 
 with col1:
@@ -62,11 +82,36 @@ with col1:
 
 with col2:
     change_date = st.date_input("Date of Change (Effective Date)")
-    
-    google_spend = st.number_input("Current Google Spend to Date ($)", min_value=0.0, value=500.0, step=50.0)
+
+# Calculate Original Start Dates early so we can generate the right month inputs
+orig_google_start = adjust_for_weekend(orig_open_date - timedelta(days=28))
+orig_meta_start = adjust_for_weekend(orig_open_date - timedelta(days=84))
+
+st.write("---")
+st.subheader("2. Past Monthly Actuals")
+st.write("Enter the exact amount spent in each month *prior* to the Date of Change.")
+
+colA, colB = st.columns(2)
+
+# Dynamic Google Inputs
+with colA:
+    st.write("**Google Past Spend**")
+    google_months = get_past_months(orig_google_start, change_date)
+    google_actuals = {}
+    for m in google_months:
+        google_actuals[m] = st.number_input(f"Google - {m} ($)", min_value=0.0, step=50.0, key=f"g_{m}")
+    google_spend = sum(google_actuals.values())
+
+# Dynamic Meta Inputs
+with colB:
+    meta_actuals = {}
     meta_spend = 0.0
     if campaign_type == "Full NCL Campaign":
-        meta_spend = st.number_input("Current Meta Spend to Date ($)", min_value=0.0, value=2500.0, step=100.0)
+        st.write("**Meta Past Spend**")
+        meta_months = get_past_months(orig_meta_start, change_date)
+        for m in meta_months:
+            meta_actuals[m] = st.number_input(f"Meta - {m} ($)", min_value=0.0, step=100.0, key=f"m_{m}")
+        meta_spend = sum(meta_actuals.values())
 
 st.write("---")
 
@@ -80,15 +125,15 @@ if st.session_state.get('scenarios_generated', False):
     new_open_dt = datetime.combine(new_open_date, datetime.min.time())
     change_dt = datetime.combine(change_date, datetime.min.time())
     
-    orig_google_start = adjust_for_weekend(orig_open_dt - timedelta(days=28))
-    orig_meta_start = adjust_for_weekend(orig_open_dt - timedelta(days=84))
+    orig_google_start_dt = datetime.combine(orig_google_start, datetime.min.time())
+    orig_meta_start_dt = datetime.combine(orig_meta_start, datetime.min.time())
     
     # Math for original plans
     orig_google_daily = 1000.00 / 28.0
     orig_meta_daily = 10000.00 / 84.0
     new_remaining_days = (new_open_dt - change_dt).days
 
-    st.subheader("2. Pivot Options")
+    st.subheader("3. Pivot Options")
     
     if new_remaining_days <= 0:
         st.error("The New Open Date must be after the Date of Change.")
@@ -96,7 +141,6 @@ if st.session_state.get('scenarios_generated', False):
         # --- RENDER TABS ---
         tab1, tab2, tab3 = st.tabs(["Option 1: Inject Budget", "Option 2: Stretch Budget", "Option 3: Pause & Resume"])
         
-        # Calculate Math specifically for the tabs & later mapping
         # Option 1 Math
         google_new_total = google_spend + (orig_google_daily * new_remaining_days)
         meta_new_total = meta_spend + (orig_meta_daily * new_remaining_days) if campaign_type == "Full NCL Campaign" else 0
@@ -142,18 +186,11 @@ if st.session_state.get('scenarios_generated', False):
         st.write("---")
         
         # --- DETAILED TABLES & TIMELINE MAPPER ---
-        st.subheader("3. Detailed Scenario Breakdown")
+        st.subheader("4. Detailed Scenario Breakdown")
         selected_scenario = st.selectbox(
             "Select a scenario to generate detailed timelines and billing tables:", 
             ["Option 1: Inject Budget", "Option 2: Stretch Budget", "Option 3: Pause & Resume"]
         )
-        
-        # Math for mapping past daily spend (to ensure tables are perfectly accurate to user inputs)
-        google_past_days = (change_dt - orig_google_start).days
-        google_past_daily = google_spend / google_past_days if google_past_days > 0 else 0
-        
-        meta_past_days = (change_dt - orig_meta_start).days
-        meta_past_daily = meta_spend / meta_past_days if meta_past_days > 0 else 0
         
         # Calculate Base Dictionaries
         google_pre_dict = defaultdict(float)
@@ -162,153 +199,37 @@ if st.session_state.get('scenarios_generated', False):
         consolidated_data = []
         
         if selected_scenario == "Option 1: Inject Budget":
-            # Google
-            g1 = calculate_monthly_budgets(orig_google_start, change_dt, google_past_daily)
+            # Google Past Actuals + Future Math
+            for k,v in google_actuals.items(): google_pre_dict[k] += v
             g2 = calculate_monthly_budgets(change_dt, new_open_dt, orig_google_daily)
-            for k,v in g1.items(): google_pre_dict[k] += v
             for k,v in g2.items(): google_pre_dict[k] += v
-            timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-            consolidated_data.append({'Campaign': 'Google Pre-Opening', 'Start Date': orig_google_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${google_new_total:,.0f}", 'Type': 'Pre-Opening'})
             
-            # Meta
+            timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
+            consolidated_data.append({'Campaign': 'Google Pre-Opening', 'Start Date': orig_google_start_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${google_new_total:,.0f}", 'Type': 'Pre-Opening'})
+            
+            # Meta Past Actuals + Future Math
             if campaign_type == "Full NCL Campaign":
-                m1 = calculate_monthly_budgets(orig_meta_start, change_dt, meta_past_daily)
+                for k,v in meta_actuals.items(): meta_pre_dict[k] += v
                 m2 = calculate_monthly_budgets(change_dt, new_open_dt, orig_meta_daily)
-                for k,v in m1.items(): meta_pre_dict[k] += v
                 for k,v in m2.items(): meta_pre_dict[k] += v
-                timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                consolidated_data.append({'Campaign': 'Meta Pre-Opening', 'Start Date': orig_meta_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${meta_new_total:,.0f}", 'Type': 'Pre-Opening'})
+                
+                timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
+                consolidated_data.append({'Campaign': 'Meta Pre-Opening', 'Start Date': orig_meta_start_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${meta_new_total:,.0f}", 'Type': 'Pre-Opening'})
 
         elif selected_scenario == "Option 2: Stretch Budget":
-            # Google
-            g1 = calculate_monthly_budgets(orig_google_start, change_dt, google_past_daily)
+            # Google Past Actuals + Future Math
+            for k,v in google_actuals.items(): google_pre_dict[k] += v
             g2 = calculate_monthly_budgets(change_dt, new_open_dt, google_stretch_daily)
-            for k,v in g1.items(): google_pre_dict[k] += v
             for k,v in g2.items(): google_pre_dict[k] += v
-            timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-            consolidated_data.append({'Campaign': 'Google Pre-Opening', 'Start Date': orig_google_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$1,000", 'Type': 'Pre-Opening'})
             
-            # Meta
+            timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
+            consolidated_data.append({'Campaign': 'Google Pre-Opening', 'Start Date': orig_google_start_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$1,000", 'Type': 'Pre-Opening'})
+            
+            # Meta Past Actuals + Future Math
             if campaign_type == "Full NCL Campaign":
-                m1 = calculate_monthly_budgets(orig_meta_start, change_dt, meta_past_daily)
+                for k,v in meta_actuals.items(): meta_pre_dict[k] += v
                 m2 = calculate_monthly_budgets(change_dt, new_open_dt, meta_stretch_daily)
-                for k,v in m1.items(): meta_pre_dict[k] += v
                 for k,v in m2.items(): meta_pre_dict[k] += v
-                timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                consolidated_data.append({'Campaign': 'Meta Pre-Opening', 'Start Date': orig_meta_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$10,000", 'Type': 'Pre-Opening'})
-
-        elif selected_scenario == "Option 3: Pause & Resume":
-            # Google
-            g1 = calculate_monthly_budgets(orig_google_start, change_dt, google_past_daily)
-            for k,v in g1.items(): google_pre_dict[k] += v
-            
-            if google_resume_dt > change_dt:
-                g2 = calculate_monthly_budgets(google_resume_dt, new_open_dt, google_resume_daily)
-                for k,v in g2.items(): google_pre_dict[k] += v
-                timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start, 'End': change_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': google_resume_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                consolidated_data.append({'Campaign': 'Google Pre-Opening (Pre-Pause)', 'Start Date': orig_google_start.strftime('%Y-%m-%d'), 'End Date': (change_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${google_spend:,.0f}", 'Type': 'Pre-Opening'})
-                consolidated_data.append({'Campaign': 'Google Pre-Opening (Resumed)', 'Start Date': google_resume_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${max(0, 1000 - google_spend):,.0f}", 'Type': 'Pre-Opening'})
-            else:
-                g2 = calculate_monthly_budgets(change_dt, new_open_dt, google_stretch_daily)
-                for k,v in g2.items(): google_pre_dict[k] += v
-                timeline_data.append({'Campaign': 'Google Pre-Opening', 'Start': orig_google_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                consolidated_data.append({'Campaign': 'Google Pre-Opening', 'Start Date': orig_google_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$1,000", 'Type': 'Pre-Opening'})
                 
-            # Meta
-            if campaign_type == "Full NCL Campaign":
-                m1 = calculate_monthly_budgets(orig_meta_start, change_dt, meta_past_daily)
-                for k,v in m1.items(): meta_pre_dict[k] += v
-                
-                if meta_resume_dt > change_dt:
-                    m2 = calculate_monthly_budgets(meta_resume_dt, new_open_dt, meta_resume_daily)
-                    for k,v in m2.items(): meta_pre_dict[k] += v
-                    timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start, 'End': change_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                    timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': meta_resume_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                    consolidated_data.append({'Campaign': 'Meta Pre-Opening (Pre-Pause)', 'Start Date': orig_meta_start.strftime('%Y-%m-%d'), 'End Date': (change_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${meta_spend:,.0f}", 'Type': 'Pre-Opening'})
-                    consolidated_data.append({'Campaign': 'Meta Pre-Opening (Resumed)', 'Start Date': meta_resume_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': f"${max(0, 10000 - meta_spend):,.0f}", 'Type': 'Pre-Opening'})
-                else:
-                    m2 = calculate_monthly_budgets(change_dt, new_open_dt, meta_stretch_daily)
-                    for k,v in m2.items(): meta_pre_dict[k] += v
-                    timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
-                    consolidated_data.append({'Campaign': 'Meta Pre-Opening', 'Start Date': orig_meta_start.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$10,000", 'Type': 'Pre-Opening'})
-
-        # --- POST OPENING MATH (Always aligns with the New Open Date) ---
-        post_open_google_initial_4week_end_date = new_open_dt + timedelta(days=28)
-        post_open_google_final_campaign_end_date = get_end_of_month(post_open_google_initial_4week_end_date)
-        google_post_open_monthly_budgets = calculate_phased_monthly_budgets(
-            new_open_dt, post_open_google_initial_4week_end_date, post_open_google_final_campaign_end_date, round(1000.0/28.0), 25
-        )
-        timeline_data.append({'Campaign': 'Google Post-Opening', 'Start': new_open_dt, 'End': post_open_google_final_campaign_end_date, 'Group': 'Post-Opening'})
-        consolidated_data.append({'Campaign': 'Google Post-Opening', 'Start Date': new_open_dt.strftime('%Y-%m-%d'), 'End Date': post_open_google_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${1000.00 + ((post_open_google_final_campaign_end_date - post_open_google_initial_4week_end_date).days * 25):,.0f}", 'Type': 'Post-Opening'})
-        
-        if campaign_type == "Full NCL Campaign":
-            post_open_meta_initial_4week_end_date = new_open_dt + timedelta(days=28)
-            post_open_meta_final_campaign_end_date = get_end_of_month(post_open_meta_initial_4week_end_date)
-            meta_post_open_monthly_budgets = calculate_phased_monthly_budgets(
-                new_open_dt, post_open_meta_initial_4week_end_date, post_open_meta_final_campaign_end_date, round(1500.0/28.0), 20
-            )
-            timeline_data.append({'Campaign': 'Meta Post-Opening', 'Start': new_open_dt, 'End': post_open_meta_final_campaign_end_date, 'Group': 'Post-Opening'})
-            consolidated_data.append({'Campaign': 'Meta Post-Opening', 'Start Date': new_open_dt.strftime('%Y-%m-%d'), 'End Date': post_open_meta_final_campaign_end_date.strftime('%Y-%m-%d'), 'Total Budget': f"${1500.00 + ((post_open_meta_final_campaign_end_date - post_open_meta_initial_4week_end_date).days * 20):,.0f}", 'Type': 'Post-Opening'})
-
-        # Combine monthly tables
-        combined_monthly_budgets = defaultdict(lambda: defaultdict(float))
-        for month, budget in google_pre_dict.items(): combined_monthly_budgets[month]['Google Pre-Opening'] += budget
-        for month, budget in google_post_open_monthly_budgets.items(): combined_monthly_budgets[month]['Google Post-Opening'] += budget
-        if campaign_type == "Full NCL Campaign":
-            for month, budget in meta_pre_dict.items(): combined_monthly_budgets[month]['Meta Pre-Opening'] += budget
-            for month, budget in meta_post_open_monthly_budgets.items(): combined_monthly_budgets[month]['Meta Post-Opening'] += budget
-
-        sorted_months = sorted(combined_monthly_budgets.keys(), key=lambda x: datetime.strptime(x, '%B %Y'))
-
-        # --- RENDER OUTPUTS ---
-        st.dataframe(pd.DataFrame(consolidated_data), use_container_width=True)
-
-        billing_df = pd.DataFrame.from_dict(combined_monthly_budgets, orient='index').fillna(0)
-        expected_cols = ['Meta Pre-Opening', 'Google Pre-Opening', 'Meta Post-Opening', 'Google Post-Opening'] if campaign_type == "Full NCL Campaign" else ['Google Pre-Opening', 'Google Post-Opening']
-        existing_cols = [col for col in expected_cols if col in billing_df.columns]
-        billing_df = billing_df[existing_cols]
-        billing_df['Monthly Total'] = billing_df.sum(axis=1)
-        billing_df.index = pd.CategoricalIndex(billing_df.index, categories=sorted_months, ordered=True)
-        billing_df = billing_df.sort_index()
-        for col in billing_df.columns:
-            billing_df[col] = billing_df[col].apply(lambda x: f"${x:,.0f}")
-            
-        st.dataframe(billing_df, use_container_width=True)
-
-        # Plot Timeline
-        timeline_df = pd.DataFrame(timeline_data)
-        timeline_df['Duration_days'] = (timeline_df['End'] - timeline_df['Start']).dt.days
-        timeline_df = timeline_df.sort_values(by=['Start', 'Campaign'])
-
-        fig2, ax = plt.subplots(figsize=(10, 4))
-        # Ensure distinct campaigns get unique Y-axis tracks even if split into pieces
-        unique_campaigns = []
-        for c in timeline_df['Campaign']:
-            if "Google Pre-Opening" in c: unique_campaigns.append("Google Pre-Opening")
-            elif "Meta Pre-Opening" in c: unique_campaigns.append("Meta Pre-Opening")
-            elif "Google Post-Opening" in c: unique_campaigns.append("Google Post-Opening")
-            elif "Meta Post-Opening" in c: unique_campaigns.append("Meta Post-Opening")
-            else: unique_campaigns.append(c)
-            
-        campaign_order = list(dict.fromkeys(unique_campaigns)) # preserves order, removes duplicates
-        campaign_to_y = {campaign: pos for pos, campaign in enumerate(campaign_order)}
-        colors = {'Pre-Opening': 'skyblue', 'Post-Opening': 'lightcoral'}
-
-        for idx, row in timeline_df.iterrows():
-            start_num = mdates.date2num(row['Start'])
-            base_campaign = row['Campaign'].split(" (")[0] # Removes the "(Pre-Pause)" tag for mapping
-            ax.barh(campaign_to_y[base_campaign], row['Duration_days'], left=start_num, color=colors[row['Group']], edgecolor='black')
-
-        ax.axvline(x=mdates.date2num(new_open_dt), color='green', linestyle='--', label='New Open Date')
-        ax.axvline(x=mdates.date2num(change_dt), color='red', linestyle=':', label='Date of Change')
-        
-        ax.set_yticks(range(len(campaign_order)))
-        ax.set_yticklabels(campaign_order)
-        ax.legend(loc='upper right')
-        ax.xaxis_date()
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        ax.invert_yaxis()
-        fig2.autofmt_xdate()
-        plt.tight_layout()
-        st.pyplot(fig2)
+                timeline_data.append({'Campaign': 'Meta Pre-Opening', 'Start': orig_meta_start_dt, 'End': new_open_dt - timedelta(days=1), 'Group': 'Pre-Opening'})
+                consolidated_data.append({'Campaign': 'Meta Pre-Opening', 'Start Date': orig_meta_start_dt.strftime('%Y-%m-%d'), 'End Date': (new_open_dt - timedelta(days=1)).strftime('%Y-%m-%d'), 'Total Budget': "$10,000", '
